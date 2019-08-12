@@ -15,8 +15,9 @@
  
 from math import *
 import numpy as np
+from numpy.polynomial.polynomial import polyval
 
-from .acquisition
+from acquisition_conditions import AcquisitionConditions
 
 def PdeZ(Z):
     """
@@ -117,7 +118,7 @@ class coeff:
         self.Resa4 = float(temp[1])
 
 
-def smac_inv(r_toa, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coef):
+def smac_inv(r_toa, acq_cond, pressure, taup550, uo3, uh2o, coef):
     """
     r_surf=smac_inv( r_toa, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coef)
     Corrections atmosphériques
@@ -172,17 +173,9 @@ def smac_inv(r_toa, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coef
     Resa3 = coef.Resa3
     Resa4 = coef.Resa4
 
-    cdr = pi/180
-    crd = 180/pi
-
     # calcul de la reflectance de surface  smac
 
-    us = cos(tetas * cdr)
-    uv = cos(tetav * cdr)
     Peq = pressure/1013.25
-
-    # 1) air mass
-    m = 1/us + 1/uv
 
     # 2) aerosol optical depth in the spectral band, taup
     taup = a0taup + a1taup * taup550
@@ -201,77 +194,77 @@ def smac_inv(r_toa, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coef
     uco = (Peq ** pco)
 
     # 4) if uh2o <= 0 and uo3 <=0 no gaseous absorption is computed
-    to3 = exp(ao3 * ((uo3 * m) ** no3))
-    th2o = exp(ah2o * ((uh2o * m) ** nh2o))
-    to2 = exp(ao2 * ((uo2 * m) ** no2))
-    tco2 = exp(aco2 * ((uco2 * m) ** nco2))
-    tch4 = exp(ach4 * ((uch4 * m) ** nch4))
-    tno2 = exp(ano2 * ((uno2 * m) ** nno2))
-    tco = exp(aco * ((uco * m) ** nco))
+    to3 = exp(ao3 * ((uo3 * acq_cond.m) ** no3))
+    th2o = exp(ah2o * ((uh2o * acq_cond.m) ** nh2o))
+    to2 = exp(ao2 * ((uo2 * acq_cond.m) ** no2))
+    tco2 = exp(aco2 * ((uco2 * acq_cond.m) ** nco2))
+    tch4 = exp(ach4 * ((uch4 * acq_cond.m) ** nch4))
+    tno2 = exp(ano2 * ((uno2 * acq_cond.m) ** nno2))
+    tco = exp(aco * ((uco * acq_cond.m) ** nco))
     tg = th2o * to3 * to2 * tco2 * tch4 * tco * tno2
 
     # 5) Total scattering transmission
-    ttetas = a0T + a1T * taup550 / us + (a2T * Peq + a3T) / (1. + us)  # downward
-    ttetav = a0T + a1T * taup550 / uv + (a2T * Peq + a3T) / (1. + uv)  # upward
+    ttetas = a0T + a1T * taup550 / acq_cond.us + (a2T * Peq + a3T) / (1. + acq_cond.us)  # downward
+    ttetav = a0T + a1T * taup550 / acq_cond.uv + (a2T * Peq + a3T) / (1. + acq_cond.uv)  # upward
 
     # 6) spherical albedo of the atmosphereS
     s = a0s * Peq + a3s + a1s * taup550 + a2s * taup550 ** 2
 
-    # 7) scattering angle cosine                            :--------*/
-    cksi = - ((us * uv) + (sqrt(1. - us * us) * sqrt(1. - uv * uv) * cos((phis - phiv) * cdr)))
-    if cksi < -1:
-        cksi = -1.0
-
-    # 8) scattering angle in degree
-    ksiD = crd * acos(cksi)
-
     # 9) rayleigh atmospheric reflectance
-    ray_phase = 0.7190443 * (1. + (cksi*cksi)) + 0.0412742
-    ray_ref = (taur*ray_phase) / (4*us*uv)
+    ray_phase = 0.7190443 * (1. + (acq_cond.cksi*acq_cond.cksi)) + 0.0412742
+    ray_ref = (taur*ray_phase) / (4*acq_cond.usuv)
     ray_ref = ray_ref*pressure / 1013.25
     taurz = taur*Peq
 
     # 10) Residu Rayleigh
-    Res_ray = Resr1 + Resr2 * taur*ray_phase / (us*uv) + Resr3 * ((taur*ray_phase/(us*uv)) ** 2)
+    # Res_ray = Resr1 + Resr2 * taur*ray_phase / (us*uv) + Resr3 * ((taur*ray_phase/(us*uv)) ** 2)
+
+    Res_ray = polyval((taur*ray_phase) / acq_cond.usuv, [Resr1, Resr2, Resr3])
 
     # 11) aerosol atmospheric reflectance
-    aer_phase = a0P + a1P*ksiD + a2P*ksiD*ksiD + a3P*(ksiD ** 3) + a4P * (ksiD ** 4)
+    # aer_phase = a0P + a1P*ksiD + a2P*ksiD*ksiD + a3P*(ksiD ** 3) + a4P * (ksiD ** 4)
+
+    aer_phase = polyval(acq_cond.ksid, [a0P, a1P, a2P, a3P, a4P])
 
     ak2 = (1. - wo)*(3. - wo*3*gc)
     ak = sqrt(ak2)
-    e = -3*us*us*wo / (4*(1. - ak2*us*us))
-    f = -(1. - wo)*3*gc*us*us*wo / (4*(1. - ak2*us*us))
-    dp = e / (3*us) + us*f
+    e = -3*acq_cond.us*acq_cond.us*wo / (4*(1. - ak2*acq_cond.us*acq_cond.us))
+    f = -(1. - wo)*3*gc*acq_cond.us*acq_cond.us*wo / (4*(1. - ak2*acq_cond.us*acq_cond.us))
+    dp = e / (3*acq_cond.us) + acq_cond.us*f
     d = e + f
     b = 2*ak / (3. - wo*3*gc)
     delta = np.exp(ak*taup)*(1. + b)*(1. + b) - np.exp(-ak*taup)*(1. - b)*(1. - b)
     ww = wo/4.
-    ss = us / (1. - ak2*us*us)
-    q1 = 2. + 3*us + (1. - wo)*3*gc*us*(1. + 2*us)
-    q2 = 2. - 3*us - (1. - wo)*3*gc*us*(1. - 2*us)
-    q3 = q2*np.exp(-taup/us)
+    ss = acq_cond.us / (1. - ak2*acq_cond.us*acq_cond.us)
+    q1 = 2. + 3*acq_cond.us + (1. - wo)*3*gc*acq_cond.us*(1. + 2*acq_cond.us)
+    q2 = 2. - 3*acq_cond.us - (1. - wo)*3*gc*acq_cond.us*(1. - 2*acq_cond.us)
+    q3 = q2*np.exp(-taup/acq_cond.us)
     c1 = ((ww*ss) / delta) * (q1*np.exp(ak*taup)*(1. + b) + q3*(1. - b))
     c2 = -((ww*ss) / delta) * (q1*np.exp(-ak*taup)*(1. - b) + q3*(1. + b))
     cp1 = c1*ak / (3. - wo*3*gc)
     cp2 = -c2*ak / (3. - wo*3*gc)
-    z = d - wo*3*gc*uv*dp + wo*aer_phase/4.
-    x = c1 - wo*3*gc*uv*cp1
-    y = c2 - wo*3*gc*uv*cp2
-    aa1 = uv / (1. + ak*uv)
-    aa2 = uv / (1. - ak*uv)
-    aa3 = us*uv / (us + uv) 
+    z = d - wo*3*gc*acq_cond.uv*dp + wo*aer_phase/4.
+    x = c1 - wo*3*gc*acq_cond.uv*cp1
+    y = c2 - wo*3*gc*acq_cond.uv*cp2
+    aa1 = acq_cond.uv / (1. + ak*acq_cond.uv)
+    aa2 = acq_cond.uv / (1. - ak*acq_cond.uv)
+    aa3 = acq_cond.usuv / (acq_cond.us + acq_cond.uv)
 
     aer_ref = x*aa1*(1. - np.exp(-taup/aa1))
     aer_ref = aer_ref + y*aa2*(1. - np.exp(-taup / aa2))
     aer_ref = aer_ref + z*aa3*(1. - np.exp(-taup / aa3))
-    aer_ref = aer_ref / (us*uv)
+    aer_ref = aer_ref / acq_cond.usuv
 
     # 12) Residu Aerosol
-    Res_aer = (Resa1 + Resa2 * (taup*m*cksi) + Resa3 * ((taup*m*cksi) ** 2)) + Resa4 * ((taup*m*cksi) ** 3)
+    #Res_aer = Resa1 + Resa2 * (taup*m*acq_cond.cksi) + Resa3 * ((taup*m*cksi) ** 2) + Resa4 * ((taup*m*cksi) ** 3)
+
+    Res_aer = polyval(taup*acq_cond.m*acq_cond.cksi, [Resa1, Resa2, Resa3, Resa4])
 
     #  13)  Terme de couplage molecule / aerosol
     tautot = taup + taurz
-    Res_6s = (Rest1 + Rest2 * (tautot*m*cksi) + Rest3 * ((tautot*m*cksi) ** 2)) + Rest4 * ((tautot*m*cksi) ** 3)
+    #Res_6s = (Rest1 + Rest2 * (tautot*m*cksi) + Rest3 * ((tautot*m*cksi) ** 2)) + Rest4 * ((tautot*m*cksi) ** 3)
+
+    Res_6s = polyval(tautot*acq_cond.m*acq_cond.cksi, [Rest1, Rest2, Rest3, Rest4])
 
     #  14) total atmospheric reflectance
     atm_ref = ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
@@ -284,7 +277,7 @@ def smac_inv(r_toa, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coef
     return r_surf
 
 
-def smac_dir(r_surf, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coef):
+def smac_dir(r_surf, acq_cond, pressure, taup550, uo3, uh2o, coef):
     """
     r_toa=smac_dir ( r_surf, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coef)
     Application des effets atmosphériques
@@ -340,17 +333,10 @@ def smac_dir(r_surf, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coe
     Resa3 = coef.Resa3
     Resa4 = coef.Resa4
 
-    cdr = pi/180
-    crd = 180/pi
 
     # calcul de la reflectance de surface  smac
 
-    us = cos(tetas * cdr)
-    uv = cos(tetav * cdr)
     Peq = pressure/1013.25
-
-    # 1) air mass
-    m = 1/us + 1/uv
 
     # 2) aerosol optical depth in the spectral band, taup
     taup = a0taup + a1taup * taup550
@@ -369,78 +355,71 @@ def smac_dir(r_surf, tetas, phis, tetav, phiv, pressure, taup550, uo3, uh2o, coe
     uco = (Peq ** pco)
 
     # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
-    to3 = exp(ao3 * ((uo3*m) ** no3))
-    th2o = exp(ah2o * ((uh2o*m) ** nh2o))
-    to2 = exp(ao2 * ((uo2*m) ** no2))
-    tco2 = exp(aco2 * ((uco2*m) ** nco2))
-    tch4 = exp(ach4 * ((uch4*m) ** nch4))
-    tno2 = exp(ano2 * ((uno2*m) ** nno2))
-    tco = exp(aco * ((uco * m) ** nco))
+    to3 = exp(ao3 * ((uo3*acq_cond.m) ** no3))
+    th2o = exp(ah2o * ((uh2o*acq_cond.m) ** nh2o))
+    to2 = exp(ao2 * ((uo2*acq_cond.m) ** no2))
+    tco2 = exp(aco2 * ((uco2*acq_cond.m) ** nco2))
+    tch4 = exp(ach4 * ((uch4*acq_cond.m) ** nch4))
+    tno2 = exp(ano2 * ((uno2*acq_cond.m) ** nno2))
+    tco = exp(aco * ((uco * acq_cond.m) ** nco))
     tg = th2o * to3 * to2 * tco2 * tch4 * tco * tno2
 
     # 5) Total scattering transmission
-    ttetas = a0T + a1T*taup550/us + (a2T*Peq + a3T)/(1.+us)  # downward
-    ttetav = a0T + a1T*taup550/uv + (a2T*Peq + a3T)/(1.+uv)  # upward
+    ttetas = a0T + a1T*taup550/acq_cond.us + (a2T*Peq + a3T)/(1.+acq_cond.us)  # downward
+    ttetav = a0T + a1T*taup550/acq_cond.uv + (a2T*Peq + a3T)/(1.+acq_cond.uv)  # upward
 
     # 6) spherical albedo of the atmosphere
     s = a0s * Peq + a3s + a1s * taup550 + a2s * (taup550 ** 2)
 
-    # 7) scattering angle cosine
-    cksi = - ((us*uv) + (sqrt(1. - us*us) * sqrt(1. - uv*uv)*cos((phis-phiv-360) * cdr)))
-    if cksi < -1:
-        cksi = -1.0
-
-    # 8) scattering angle in degree
-    ksiD = crd*acos(cksi) 
- 
     # 9) rayleigh atmospheric reflectance
-    ray_phase = 0.7190443 * (1. + (cksi*cksi)) + 0.0412742
-    ray_ref = (taur*ray_phase) / (4*us*uv)
+    ray_phase = 0.7190443 * (1. + (acq_cond.cksi*acq_cond.cksi)) + 0.0412742
+    ray_ref = (taur*ray_phase) / (4*acq_cond.usuv)
     ray_ref = ray_ref*pressure / 1013.25
     taurz = taur * Peq
  
     # 10) Residu Rayleigh
-    Res_ray = Resr1 + Resr2 * taur*ray_phase / (us*uv) + Resr3 * ((taur*ray_phase/(us*uv)) ** 2)
- 
+    Res_ray = polyval((taur*ray_phase) / acq_cond.usuv, [Resr1, Resr2, Resr3])
+
     # 11) aerosol atmospheric reflectance
-    aer_phase = a0P + a1P*ksiD + a2P*ksiD*ksiD + a3P*(ksiD ** 3) + a4P * (ksiD ** 4)
- 
+    aer_phase = polyval(acq_cond.ksid, [a0P, a1P, a2P, a3P, a4P])
+
     ak2 = (1. - wo)*(3. - wo*3*gc)
     ak = sqrt(ak2)
-    e = -3*us*us*wo / (4*(1. - ak2*us*us))
-    f = -(1. - wo)*3*gc*us*us*wo / (4*(1. - ak2*us*us))
-    dp = e / (3*us) + us*f
+    e = -3*acq_cond.us*acq_cond.us*wo / (4*(1. - ak2*acq_cond.us*acq_cond.us))
+    f = -(1. - wo)*3*gc*acq_cond.us*acq_cond.us*wo / (4*(1. - ak2*acq_cond.us*acq_cond.us))
+    dp = e / (3*acq_cond.us) + acq_cond.us*f
     d = e + f
     b = 2*ak / (3. - wo*3*gc)
     delta = np.exp(ak*taup)*(1. + b)*(1. + b) - np.exp(-ak*taup)*(1. - b)*(1. - b)
     ww = wo/4.
-    ss = us / (1. - ak2*us*us)
-    q1 = 2. + 3*us + (1. - wo)*3*gc*us*(1. + 2*us)
-    q2 = 2. - 3*us - (1. - wo)*3*gc*us*(1. - 2*us)
-    q3 = q2*np.exp(-taup/us)
+    ss = acq_cond.us / (1. - ak2*acq_cond.us*acq_cond.us)
+    q1 = 2. + 3*acq_cond.us + (1. - wo)*3*gc*acq_cond.us*(1. + 2*acq_cond.us)
+    q2 = 2. - 3*acq_cond.us - (1. - wo)*3*gc*acq_cond.us*(1. - 2*acq_cond.us)
+    q3 = q2*np.exp(-taup/acq_cond.us)
     c1 = ((ww*ss) / delta) * (q1*np.exp(ak*taup)*(1. + b) + q3*(1. - b))
     c2 = -((ww*ss) / delta) * (q1*np.exp(-ak*taup)*(1. - b) + q3*(1. + b))
     cp1 = c1*ak / (3. - wo*3*gc)
     cp2 = -c2*ak / (3. - wo*3*gc)
-    z = d - wo*3*gc*uv*dp + wo*aer_phase/4.
-    x = c1 - wo*3*gc*uv*cp1
-    y = c2 - wo*3*gc*uv*cp2
-    aa1 = uv / (1. + ak*uv)
-    aa2 = uv / (1. - ak*uv)
-    aa3 = us*uv / (us + uv) 
+    z = d - wo*3*gc*acq_cond.uv*dp + wo*aer_phase/4.
+    x = c1 - wo*3*gc*acq_cond.uv*cp1
+    y = c2 - wo*3*gc*acq_cond.uv*cp2
+    aa1 = acq_cond.uv / (1. + ak*acq_cond.uv)
+    aa2 = acq_cond.uv / (1. - ak*acq_cond.uv)
+    aa3 = acq_cond.usuv / (acq_cond.us + acq_cond.uv)
  
     aer_ref = x*aa1 * (1. - np.exp(-taup/aa1))
     aer_ref = aer_ref + y*aa2*(1. - np.exp(-taup / aa2))
     aer_ref = aer_ref + z*aa3*(1. - np.exp(-taup / aa3))
-    aer_ref = aer_ref / (us*uv)
+    aer_ref = aer_ref / acq_cond.usuv
  
     # 12) Residu Aerosol
-    Res_aer = (Resa1 + Resa2 * (taup * m * cksi) + Resa3 * ((taup*m*cksi) ** 2)) + Resa4 * ((taup*m*cksi) ** 3)
+    Res_aer = polyval(taup * acq_cond.m * acq_cond.cksi, [Resa1, Resa2, Resa3, Resa4])
  
     # 13)  Terme de couplage molecule / aerosol
     tautot = taup+taurz
-    Res_6s = (Rest1 + Rest2 * (tautot * m * cksi) + Rest3 * ((tautot*m*cksi) ** 2)) + Rest4 * ((tautot*m*cksi) ** 3)
- 
+    Res_6s = polyval(tautot*acq_cond.m*acq_cond.cksi, [Rest1, Rest2, Rest3, Rest4])
+
+
     # 14) total atmospheric reflectance
     atm_ref = ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
  
@@ -459,11 +438,13 @@ if __name__ == "__main__":
     phi_v = -160
     r_toa = 0.2
 
+    acq_cond = AcquisitionConditions(phi_s, theta_s, phi_v, theta_v)
+
     # lecture des coefs_smac
     nom_smac = 'COEFS/coef_FORMOSAT2_B1_CONT.dat'
     coefs = coeff(nom_smac)
     bd = 1
-    r_surf = smac_inv(r_toa, theta_s, phi_s, theta_v, phi_v, 1013, 0.1, 0.3, 0.3, coefs)
-    r_toa2 = smac_dir(r_surf, theta_s, phi_s, theta_v, phi_v, 1013, 0.1, 0.3, 0.3, coefs)
+    r_surf = smac_inv(r_toa, acq_cond, 1013, 0.1, 0.3, 0.3, coefs)
+    r_toa2 = smac_dir(r_surf, acq_cond, 1013, 0.1, 0.3, 0.3, coefs)
 
     print r_toa, r_surf, r_toa2
