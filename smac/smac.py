@@ -212,18 +212,13 @@ def smac_inv(r_toa, acq_cond, pressure, taup550, uo3, uh2o, coef):
 
     # 9) rayleigh atmospheric reflectance
     ray_phase = 0.7190443 * (1. + (acq_cond.cksi*acq_cond.cksi)) + 0.0412742
-    ray_ref = (taur*ray_phase) / (4*acq_cond.usuv)
-    ray_ref = ray_ref*pressure / 1013.25
-    taurz = taur*Peq
+    ray_ref = ((taur*ray_phase) / (4*acq_cond.usuv)) * Peq
+
 
     # 10) Residu Rayleigh
-    # Res_ray = Resr1 + Resr2 * taur*ray_phase / (us*uv) + Resr3 * ((taur*ray_phase/(us*uv)) ** 2)
-
     Res_ray = polyval((taur*ray_phase) / acq_cond.usuv, [Resr1, Resr2, Resr3])
 
     # 11) aerosol atmospheric reflectance
-    # aer_phase = a0P + a1P*ksiD + a2P*ksiD*ksiD + a3P*(ksiD ** 3) + a4P * (ksiD ** 4)
-
     aer_phase = polyval(acq_cond.ksid, [a0P, a1P, a2P, a3P, a4P])
 
     ak2 = (1. - wo)*(3. - wo*3*gc)
@@ -256,15 +251,10 @@ def smac_inv(r_toa, acq_cond, pressure, taup550, uo3, uh2o, coef):
     aer_ref = aer_ref / acq_cond.usuv
 
     # 12) Residu Aerosol
-    #Res_aer = Resa1 + Resa2 * (taup*m*acq_cond.cksi) + Resa3 * ((taup*m*cksi) ** 2) + Resa4 * ((taup*m*cksi) ** 3)
-
     Res_aer = polyval(taup*acq_cond.m*acq_cond.cksi, [Resa1, Resa2, Resa3, Resa4])
 
     #  13)  Terme de couplage molecule / aerosol
-    tautot = taup + taurz
-    #Res_6s = (Rest1 + Rest2 * (tautot*m*cksi) + Rest3 * ((tautot*m*cksi) ** 2)) + Rest4 * ((tautot*m*cksi) ** 3)
-
-    Res_6s = polyval(tautot*acq_cond.m*acq_cond.cksi, [Rest1, Rest2, Rest3, Rest4])
+    Res_6s = polyval((taup + taur*Peq)*acq_cond.m*acq_cond.cksi, [Rest1, Rest2, Rest3, Rest4])
 
     #  14) total atmospheric reflectance
     atm_ref = ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
@@ -369,14 +359,12 @@ def smac_dir(r_surf, acq_cond, pressure, taup550, uo3, uh2o, coef):
     ttetav = a0T + a1T*taup550/acq_cond.uv + (a2T*Peq + a3T)/(1.+acq_cond.uv)  # upward
 
     # 6) spherical albedo of the atmosphere
-    s = a0s * Peq + a3s + a1s * taup550 + a2s * (taup550 ** 2)
+    s = a0s * Peq + polyval(taup550, [a3s, a1s, a2s])
 
     # 9) rayleigh atmospheric reflectance
     ray_phase = 0.7190443 * (1. + (acq_cond.cksi*acq_cond.cksi)) + 0.0412742
-    ray_ref = (taur*ray_phase) / (4*acq_cond.usuv)
-    ray_ref = ray_ref*pressure / 1013.25
-    taurz = taur * Peq
- 
+    ray_ref = ((taur*ray_phase) / (4*acq_cond.usuv)) * Peq
+
     # 10) Residu Rayleigh
     Res_ray = polyval((taur*ray_phase) / acq_cond.usuv, [Resr1, Resr2, Resr3])
 
@@ -416,9 +404,8 @@ def smac_dir(r_surf, acq_cond, pressure, taup550, uo3, uh2o, coef):
     Res_aer = polyval(taup * acq_cond.m * acq_cond.cksi, [Resa1, Resa2, Resa3, Resa4])
  
     # 13)  Terme de couplage molecule / aerosol
-    tautot = taup+taurz
-    Res_6s = polyval(tautot*acq_cond.m*acq_cond.cksi, [Rest1, Rest2, Rest3, Rest4])
-
+    Res_6s = polyval((taup + taur * Peq) * acq_cond.m * acq_cond.cksi,
+                     [Rest1, Rest2, Rest3, Rest4])
 
     # 14) total atmospheric reflectance
     atm_ref = ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
