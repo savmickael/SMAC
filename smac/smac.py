@@ -16,6 +16,7 @@
 from math import *
 import numpy as np
 
+from .acquisition
 
 def PdeZ(Z):
     """
