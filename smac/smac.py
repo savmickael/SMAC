@@ -104,21 +104,15 @@ def smac_inv(r_toa, acq_cond, pressure, taup550, uo3, uh2o, coef):
     taup = coef.a0taup + coef.a1taup * taup550
 
     # 3) gaseous transmissions (downward and upward paths)
-    uo2 = (Peq ** coef.po2)
-    uco2 = (Peq ** coef.pco2)
-    uch4 = (Peq ** coef.pch4)
-    uno2 = (Peq ** coef.pno2)
-    uco = (Peq ** coef.pco)
+    u_atmo_composant = np.insert(np.power(Peq, [coef.po2, coef.pco2, coef.pch4, coef.pno2, coef.pco]),
+                                 0, [uo3, uh2o])
 
-    # 4) if uh2o <= 0 and uo3 <=0 no gaseous absorption is computed
-    to3 = exp(coef.ao3 * ((uo3 * acq_cond.m) ** coef.no3))
-    th2o = exp(coef.ah2o * ((uh2o * acq_cond.m) ** coef.nh2o))
-    to2 = exp(coef.ao2 * ((uo2 * acq_cond.m) ** coef.no2))
-    tco2 = exp(coef.aco2 * ((uco2 * acq_cond.m) ** coef.nco2))
-    tch4 = exp(coef.ach4 * ((uch4 * acq_cond.m) ** coef.nch4))
-    tno2 = exp(coef.ano2 * ((uno2 * acq_cond.m) ** coef.nno2))
-    tco = exp(coef.aco * ((uco * acq_cond.m) ** coef.nco))
-    tg = th2o * to3 * to2 * tco2 * tch4 * tco * tno2
+    # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
+    t_atmo_composant = np.exp([coef.ao3, coef.ah2o, coef.ao2, coef.aco2, coef.ach4, coef.ano2, coef.aco] *
+                              np.power(u_atmo_composant * acq_cond.m,
+                                       [coef.no3, coef.nh2o, coef.no2, coef.nco2, coef.nch4, coef.nno2, coef.nco]))
+
+    tg = np.prod(t_atmo_composant)
 
     # 5) Total scattering transmission
     ttetas = coef.a0T + coef.a1T * taup550 / acq_cond.us + (coef.a2T * Peq + coef.a3T) / (1. + acq_cond.us)  # downward
@@ -200,22 +194,15 @@ def smac_dir(r_surf, acq_cond, pressure, taup550, uo3, uh2o, coef):
     taup = coef.a0taup + coef.a1taup * taup550
 
     # 3) gaseous transmissions (downward and upward paths)
-
-    uo2 = (Peq ** coef.po2)
-    uco2 = (Peq ** coef.pco2)
-    uch4 = (Peq ** coef.pch4)
-    uno2 = (Peq ** coef.pno2)
-    uco = (Peq ** coef.pco)
+    u_atmo_composant = np.insert(np.power(Peq, [coef.po2, coef.pco2, coef.pch4, coef.pno2, coef.pco]),
+                                 0, [uo3, uh2o])
 
     # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
-    to3 = exp(coef.ao3 * ((uo3*acq_cond.m) ** coef.no3))
-    th2o = exp(coef.ah2o * ((uh2o*acq_cond.m) ** coef.nh2o))
-    to2 = exp(coef.ao2 * ((uo2*acq_cond.m) ** coef.no2))
-    tco2 = exp(coef.aco2 * ((uco2*acq_cond.m) ** coef.nco2))
-    tch4 = exp(coef.ach4 * ((uch4*acq_cond.m) ** coef.nch4))
-    tno2 = exp(coef.ano2 * ((uno2*acq_cond.m) ** coef.nno2))
-    tco = exp(coef.aco * ((uco * acq_cond.m) ** coef.nco))
-    tg = th2o * to3 * to2 * tco2 * tch4 * tco * tno2
+    t_atmo_composant = np.exp([coef.ao3, coef.ah2o, coef.ao2, coef.aco2, coef.ach4, coef.ano2, coef.aco] *
+                              np.power(u_atmo_composant * acq_cond.m,
+                                       [coef.no3, coef.nh2o, coef.no2, coef.nco2, coef.nch4, coef.nno2, coef.nco]))
+
+    tg = np.prod(t_atmo_composant)
 
     # 5) Total scattering transmission
     ttetas = coef.a0T + coef.a1T*taup550/acq_cond.us + (coef.a2T*Peq + coef.a3T)/(1.+acq_cond.us)  # downward
