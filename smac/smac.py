@@ -100,6 +100,33 @@ class SMAC(object):
 
         self._init_model()
 
+        self._tg = self.compute_gaseous_transmissions(uo3, uh2o, self._pressure / 1013.25)
+
+    def compute_gaseous_transmissions(self, uo3, uh2o, Peq):
+        # 3) gaseous transmissions (downward and upward paths)
+        u_atmo_composant = np.insert(np.power(Peq, [self._coef.po2, self._coef.pco2, self._coef.pch4,
+                                                    self._coef.pno2, self._coef.pco]),
+                                     0, [uo3, uh2o])
+
+        # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
+        t_atmo_composant = np.exp([self._coef.ao3, self._coef.ah2o, self._coef.ao2, self._coef.aco2, self._coef.ach4,
+                                   self._coef.ano2, self._coef.aco] *
+                                  np.power(u_atmo_composant * self._acq_cond.m,
+                                           [self._coef.no3, self._coef.nh2o, self._coef.no2, self._coef.nco2,
+                                            self._coef.nch4, self._coef.nno2, self._coef.nco]
+                                           )
+                                  )
+
+        return np.prod(t_atmo_composant)
+
+    def compute_scattering_transmission(self, Peq):
+        ttetas = self._coef.a0T + self._coef.a1T * self._taup550 / self._acq_cond.us + \
+                 (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.us)  # downward
+        ttetav = self._coef.a0T + self._coef.a1T * self._taup550 / acq_cond.uv + \
+                 (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.uv)  # upward
+
+        return ttetas, ttetav
+
     def _init_model(self):
         wo = self._coef.wo
         gc = self._coef.gc
