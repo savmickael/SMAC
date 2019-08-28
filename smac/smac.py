@@ -88,24 +88,18 @@ class SMACCoeff(object):
         self.Resa1, self.Resa2 = SMACCoeff._line_to_coef(lines[17], 2)
         self.Resa3, self.Resa4 = SMACCoeff._line_to_coef(lines[18], 2)
 
-
-class SMAC(object):
+class SMAC2(object):
     """
-    SMAC with uniform atmospheric conditions
+    We consider uniform atmospheric composition and geometric acquisition conditions
     """
-    def __init__(self, acq_conditions, pressure, taup550, uo3, uh2o, coef):
+    def __init__(self, coef, acq_conditions, taup550, uo3, uh2o):
+        self._coef = coef
         self._acq_cond = acq_conditions
-        self._pressure = pressure
         self._taup550 = taup550
         self._uo3 = uo3
         self._uh2o = uh2o
-        self._coef = coef
 
         self._taup = self.compute_spectral_aerosol_depth()
-        self._tg = self.compute_gaseous_transmissions( self._pressure / 1013.25)
-        self._ttetas, self._ttetav = self.compute_scattering_transmission(self._pressure / 1013.25)
-        self._s = self.compute_spherical_albedo(self._pressure / 1013.25)
-        self._atm_ref = self.compute_atmospheric_reflectance(self._pressure / 1013.25)
 
     def compute_spectral_aerosol_depth(self):
         # 2) aerosol optical depth in the spectral band, taup
@@ -136,8 +130,9 @@ class SMAC(object):
                  (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.uv)  # upward
 
         return ttetas, ttetav
+
     def compute_spherical_albedo(self, Peq):
-            # 6) spherical albedo of the atmosphere
+        # 6) spherical albedo of the atmosphere
         return self._coef.a0s * Peq + polyval(self._taup550, [self._coef.a3s, self._coef.a1s, self._coef.a2s])
 
     def compute_atmospheric_reflectance(self, Peq):
@@ -193,15 +188,58 @@ class SMAC(object):
         # 14) total atmospheric reflectance
         return ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
 
+    def compute_toc(self, r_toa, altitude):
+        Peq = PdeZ(altitude)/1013.25
+
+        tg = self.compute_gaseous_transmissions(Peq)
+        ttetas, ttetav = self.compute_scattering_transmission(Peq)
+        s = self.compute_spherical_albedo(Peq)
+        atm_ref = self.compute_atmospheric_reflectance(Peq)
+
+        # 15) Surface reflectance
+
+        return self._compute_toc(r_toa, atm_ref, tg, ttetas, ttetav, s)
+
+    def _compute_toc(self, r_toa, atm_ref, tg, ttetas, ttetav, s):
+        r_surf = r_toa - atm_ref * tg
+        return r_surf / (tg * ttetas * ttetav + r_surf * s)
+
+    def compute_toa(r_srf, altitude)
+        Peq = PdeZ(altitude)/1013.25
+
+        tg = self.compute_gaseous_transmissions(Peq)
+        ttetas, ttetav = self.compute_scattering_transmission(Peq)
+        s = self.compute_spherical_albedo(Peq)
+        atm_ref = self.compute_atmospheric_reflectance(Peq)
+
+        return self._compute_toa(r_surf, atm_ref, tg, ttetas, ttetav, s)
+
+    def _compute_toa(self, r_surf, atm_ref, tg, ttetas, ttetav, s)
+        return r_surf * tg * ttetas * ttetav / (1 - r_surf * s) + atm_ref * tg
+
+class SMAC(SMAC2):
+    """
+    SMAC with uniform atmospheric composition conditions, geometric acqusition conditions and altitude
+    """
+    def __init__(self, acq_conditions, pressure, taup550, uo3, uh2o, coef):
+        super(SMAC, self).__init__(coef, acq_conditions, taup550, uo3, uh2o)
+        self._Peq = pressure / 1013.25
+
+        self._tg = super(SMAC, self).compute_gaseous_transmissions(self._Peq)
+        self._ttetas, self._ttetav = super(SMAC, self).compute_scattering_transmission(self._Peq)
+        self._s = super(SMAC, self).compute_spherical_albedo(self._Peq)
+        self._atm_ref = super(SMAC, self).compute_atmospheric_reflectance(self._Peq)
+
     def compute_toc(self, r_toa):
         # 15) Surface reflectance
 
-        return (r_toa - self._atm_ref * self._tg) / (self._tg * self._ttetas * self._ttetav + r_surf * self._s)
+        return super(SMAC, self)._compute_toc(r_toa, self._atm_ref, self._tg, self._ttetas, self._ttetav, self._s)
 
     def compute_toa(self, r_surf):
         # 15) TOA reflectance
 
-        return r_surf * self._tg * self._ttetas * self._ttetav / (1 - r_surf * self._s) + self._atm_ref * self._tg
+        return super(SMAC, self)._compute_toa(r_surf, self._atm_ref, self._tg, self._ttetas, self._ttetav, self._s)
+
 
 
 if __name__ == "__main__":
