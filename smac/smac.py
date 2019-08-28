@@ -13,7 +13,7 @@
 # Written by O.Hagolle CNES, from the original SMAC C routine
 #=============================================================================================
  
-from math import *
+from math import cos, sqrt
 import numpy as np
 from numpy.polynomial.polynomial import polyval
 
@@ -90,6 +90,9 @@ class SMACCoeff(object):
 
 
 class SMAC(object):
+    """
+    SMAC with uniform atmospheric conditions
+    """
     def __init__(self, acq_conditions, pressure, taup550, uo3, uh2o, coef):
         self._acq_cond = acq_conditions
         self._pressure = pressure
@@ -98,15 +101,21 @@ class SMAC(object):
         self._uh2o = uh2o
         self._coef = coef
 
-        self._init_model()
+        self._taup = self.compute_spectral_aerosol_depth()
+        self._tg = self.compute_gaseous_transmissions( self._pressure / 1013.25)
+        self._ttetas, self._ttetav = self.compute_scattering_transmission(self._pressure / 1013.25)
+        self._s = self.compute_spherical_albedo(self._pressure / 1013.25)
+        self._atm_ref = self.compute_atmospheric_reflectance(self._pressure / 1013.25)
 
-        self._tg = self.compute_gaseous_transmissions(uo3, uh2o, self._pressure / 1013.25)
+    def compute_spectral_aerosol_depth(self):
+        # 2) aerosol optical depth in the spectral band, taup
+        return self._coef.a0taup + self._coef.a1taup * self._taup550
 
-    def compute_gaseous_transmissions(self, uo3, uh2o, Peq):
+    def compute_gaseous_transmissions(self, Peq):
         # 3) gaseous transmissions (downward and upward paths)
         u_atmo_composant = np.insert(np.power(Peq, [self._coef.po2, self._coef.pco2, self._coef.pch4,
                                                     self._coef.pno2, self._coef.pco]),
-                                     0, [uo3, uh2o])
+                                     0, [self._uo3, self._uh2o])
 
         # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
         t_atmo_composant = np.exp([self._coef.ao3, self._coef.ah2o, self._coef.ao2, self._coef.aco2, self._coef.ach4,
@@ -120,49 +129,18 @@ class SMAC(object):
         return np.prod(t_atmo_composant)
 
     def compute_scattering_transmission(self, Peq):
+        # 5) Total scattering transmission
         ttetas = self._coef.a0T + self._coef.a1T * self._taup550 / self._acq_cond.us + \
                  (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.us)  # downward
         ttetav = self._coef.a0T + self._coef.a1T * self._taup550 / acq_cond.uv + \
                  (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.uv)  # upward
 
         return ttetas, ttetav
+    def compute_spherical_albedo(self, Peq):
+            # 6) spherical albedo of the atmosphere
+        return self._coef.a0s * Peq + polyval(self._taup550, [self._coef.a3s, self._coef.a1s, self._coef.a2s])
 
-    def _init_model(self):
-        wo = self._coef.wo
-        gc = self._coef.gc
-
-        # calcul de la reflectance de surface  smac
-
-        Peq = self._pressure / 1013.25
-
-        # 2) aerosol optical depth in the spectral band, taup
-        taup = self._coef.a0taup + self._coef.a1taup * self._taup550
-
-        # 3) gaseous transmissions (downward and upward paths)
-        u_atmo_composant = np.insert(np.power(Peq, [self._coef.po2, self._coef.pco2, self._coef.pch4,
-                                                    self._coef.pno2, self._coef.pco]),
-                                     0, [self._uo3, self._uh2o])
-
-        # 4) if uh2o <= 0 and uo3<= 0 no gaseous absorption is computed
-        t_atmo_composant = np.exp([self._coef.ao3, self._coef.ah2o, self._coef.ao2, self._coef.aco2, self._coef.ach4,
-                                   self._coef.ano2, self._coef.aco] *
-                                  np.power(u_atmo_composant * acq_cond.m,
-                                           [self._coef.no3, self._coef.nh2o, self._coef.no2, self._coef.nco2,
-                                            self._coef.nch4, self._coef.nno2, self._coef.nco]
-                                           )
-                                  )
-
-        self._tg = np.prod(t_atmo_composant)
-
-        # 5) Total scattering transmission
-        self._ttetas = self._coef.a0T + self._coef.a1T * self._taup550 / acq_cond.us + \
-                 (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.us)  # downward
-        self._ttetav = self._coef.a0T + self._coef.a1T * self._taup550 / acq_cond.uv + \
-                 (self._coef.a2T * Peq + self._coef.a3T) / (1. + self._acq_cond.uv)  # upward
-
-        # 6) spherical albedo of the atmosphere
-        self._s = self._coef.a0s * Peq + polyval(self._taup550, [self._coef.a3s, self._coef.a1s, self._coef.a2s])
-
+    def compute_atmospheric_reflectance(self, Peq):
         # 9) rayleigh atmospheric reflectance
         ray_phase = 0.7190443 * (1. + (self._acq_cond.cksi * self._acq_cond.cksi)) + 0.0412742
         ray_ref = ((self._coef.taur * ray_phase) / (4 * self._acq_cond.usuv)) * Peq
@@ -175,56 +153,55 @@ class SMAC(object):
         aer_phase = polyval(self._acq_cond.ksid,
                             [self._coef.a0P, self._coef.a1P, self._coef.a2P, self._coef.a3P, self._coef.a4P])
 
-        ak2 = (1. - wo) * (3. - wo * 3 * gc)
+        ak2 = (1. - self._coef.wo) * (3. - self._coef.wo * 3 * self._coef.gc)
         ak = sqrt(ak2)
-        e = -3 * acq_cond.us * acq_cond.us * wo / (4 * (1. - ak2 * acq_cond.us * acq_cond.us))
-        f = -(1. - wo) * 3 * gc * acq_cond.us * acq_cond.us * wo / (4 * (1. - ak2 * acq_cond.us * acq_cond.us))
+        e = -3 * acq_cond.us * acq_cond.us * self._coef.wo / (4 * (1. - ak2 * acq_cond.us * acq_cond.us))
+        f = -(1. - self._coef.wo) * 3 * self._coef.gc * acq_cond.us * acq_cond.us * self._coef.wo / (4 * (1. - ak2 * acq_cond.us * acq_cond.us))
         dp = e / (3 * acq_cond.us) + acq_cond.us * f
         d = e + f
-        b = 2 * ak / (3. - wo * 3 * gc)
-        delta = np.exp(ak * taup) * (1. + b) * (1. + b) - np.exp(-ak * taup) * (1. - b) * (1. - b)
-        ww = wo / 4.
+        b = 2 * ak / (3. - self._coef.wo * 3 * self._coef.gc)
+        delta = np.exp(ak * self._taup) * (1. + b) * (1. + b) - np.exp(-ak * self._taup) * (1. - b) * (1. - b)
+        ww = self._coef.wo / 4.
         ss = acq_cond.us / (1. - ak2 * acq_cond.us * acq_cond.us)
-        q1 = 2. + 3 * acq_cond.us + (1. - wo) * 3 * gc * acq_cond.us * (1. + 2 * acq_cond.us)
-        q2 = 2. - 3 * acq_cond.us - (1. - wo) * 3 * gc * acq_cond.us * (1. - 2 * acq_cond.us)
-        q3 = q2 * np.exp(-taup / acq_cond.us)
-        c1 = ((ww * ss) / delta) * (q1 * np.exp(ak * taup) * (1. + b) + q3 * (1. - b))
-        c2 = -((ww * ss) / delta) * (q1 * np.exp(-ak * taup) * (1. - b) + q3 * (1. + b))
-        cp1 = c1 * ak / (3. - wo * 3 * gc)
-        cp2 = -c2 * ak / (3. - wo * 3 * gc)
-        z = d - wo * 3 * gc * acq_cond.uv * dp + wo * aer_phase / 4.
-        x = c1 - wo * 3 * gc * acq_cond.uv * cp1
-        y = c2 - wo * 3 * gc * acq_cond.uv * cp2
+        q1 = 2. + 3 * acq_cond.us + (1. - self._coef.wo) * 3 * self._coef.gc * acq_cond.us * (1. + 2 * acq_cond.us)
+        q2 = 2. - 3 * acq_cond.us - (1. - self._coef.wo) * 3 * self._coef.gc * acq_cond.us * (1. - 2 * acq_cond.us)
+        q3 = q2 * np.exp(-self._taup / acq_cond.us)
+        c1 = ((ww * ss) / delta) * (q1 * np.exp(ak * self._taup) * (1. + b) + q3 * (1. - b))
+        c2 = -((ww * ss) / delta) * (q1 * np.exp(-ak * self._taup) * (1. - b) + q3 * (1. + b))
+        cp1 = c1 * ak / (3. - self._coef.wo * 3 * self._coef.gc)
+        cp2 = -c2 * ak / (3. - self._coef.wo * 3 * self._coef.gc)
+        z = d - self._coef.wo * 3 * self._coef.gc * acq_cond.uv * dp + self._coef.wo * aer_phase / 4.
+        x = c1 - self._coef.wo * 3 * self._coef.gc * acq_cond.uv * cp1
+        y = c2 - self._coef.wo * 3 * self._coef.gc * acq_cond.uv * cp2
         aa1 = acq_cond.uv / (1. + ak * acq_cond.uv)
         aa2 = acq_cond.uv / (1. - ak * acq_cond.uv)
         aa3 = acq_cond.usuv / (acq_cond.us + acq_cond.uv)
 
-        aer_ref = x * aa1 * (1. - np.exp(-taup / aa1))
-        aer_ref = aer_ref + y * aa2 * (1. - np.exp(-taup / aa2))
-        aer_ref = aer_ref + z * aa3 * (1. - np.exp(-taup / aa3))
+        aer_ref = x * aa1 * (1. - np.exp(-self._taup / aa1))
+        aer_ref = aer_ref + y * aa2 * (1. - np.exp(-self._taup / aa2))
+        aer_ref = aer_ref + z * aa3 * (1. - np.exp(-self._taup / aa3))
         aer_ref = aer_ref / acq_cond.usuv
 
         # 12) Residu Aerosol
-        Res_aer = polyval(taup * self._acq_cond.m * self._acq_cond.cksi,
+        Res_aer = polyval(self._taup * self._acq_cond.m * self._acq_cond.cksi,
                           [self._coef.Resa1, self._coef.Resa2, self._coef.Resa3, self._coef.Resa4])
 
         # 13)  Terme de couplage molecule / aerosol
-        Res_6s = polyval((taup + self._coef.taur * Peq) * self._acq_cond.m * self._acq_cond.cksi,
+        Res_6s = polyval((self._taup + self._coef.taur * Peq) * self._acq_cond.m * self._acq_cond.cksi,
                          [self._coef.Rest1, self._coef.Rest2, self._coef.Rest3, self._coef.Rest4])
 
         # 14) total atmospheric reflectance
-        self._atm_ref = ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
+        return ray_ref - Res_ray + aer_ref - Res_aer + Res_6s
 
     def compute_toc(self, r_toa):
         # 15) Surface reflectance
 
-        r_surf = r_toa - (self._atm_ref * self._tg)
-        return r_surf / ((self._tg * self._ttetas * self._ttetav) + (r_surf * self._s))
+        return (r_toa - self._atm_ref * self._tg) / (self._tg * self._ttetas * self._ttetav + r_surf * self._s)
 
     def compute_toa(self, r_surf):
         # 15) TOA reflectance
 
-        return r_surf * self._tg * self._ttetas * self._ttetav / (1 - r_surf * self._s) + (self._atm_ref * self._tg)
+        return r_surf * self._tg * self._ttetas * self._ttetav / (1 - r_surf * self._s) + self._atm_ref * self._tg
 
 
 if __name__ == "__main__":
