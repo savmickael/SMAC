@@ -8,7 +8,8 @@
 """
 from __future__ import absolute_import
 
-from math import degrees, acos, cos, radians, sqrt
+from math import acos, degrees
+from numpy import cos as np_cos , radians as np_radians, sqrt as np_sqrt, array as np_array, subtract as np_subtract
 
 
 class AcquisitionConditions(object):
@@ -21,17 +22,17 @@ class AcquisitionConditions(object):
         self._phi_v = phi_v
         self._theta_v = theta_v
 
-        self._us = cos(radians(self._theta_s))
-        self._uv = cos(radians(self._theta_v))
+        self._us = np_cos(np_radians(self._theta_s))
+        self._uv = np_cos(np_radians(self._theta_v))
 
         # air mass
         self._m = 1 / self._us + 1 / self._uv
 
         # scattering angle cosine
         self._cksi = - (self._us * self._uv +
-                        sqrt(1. - self._us * self._us) *
-                        sqrt(1. - self._uv * self._uv) *
-                        cos(radians(self._phi_s - self._phi_v)))
+                        np_sqrt(1. - self._us * self._us) *
+                        np_sqrt(1. - self._uv * self._uv) *
+                        np_cos(np_radians(np_subtract(self._phi_s, self._phi_v))))
         if self._cksi < -1:
             self._cksi = -1.0
 
