@@ -88,22 +88,30 @@ class SMACCoeff(object):
         self.Resa1, self.Resa2 = SMACCoeff._line_to_coef(lines[17], 2)
         self.Resa3, self.Resa4 = SMACCoeff._line_to_coef(lines[18], 2)
 
-class SMAC2(object):
+class SMAC3(object):
+    def __init__(self, coef):
+        self._coef = coef
+
+    def compute_spectral_aerosol_depth(self, taup550):
+        # 2) aerosol optical depth in the spectral band, taup
+        return self._coef.a0taup + self._coef.a1taup * taup550
+
+    def _compute_toa(self, r_surf, atm_ref, tg, ttetas, ttetav, s):
+        return r_surf * tg * ttetas * ttetav / (1 - r_surf * s) + atm_ref * tg
+    
+
+class SMAC2(SMAC3):
     """
     We consider uniform atmospheric composition and geometric acquisition conditions
     """
     def __init__(self, coef, acq_conditions, taup550, uo3, uh2o):
-        self._coef = coef
+        super(SMAC2, self).__init__(coef)
         self._acq_cond = acq_conditions
         self._taup550 = taup550
         self._uo3 = uo3
         self._uh2o = uh2o
 
-        self._taup = self.compute_spectral_aerosol_depth()
-
-    def compute_spectral_aerosol_depth(self):
-        # 2) aerosol optical depth in the spectral band, taup
-        return self._coef.a0taup + self._coef.a1taup * self._taup550
+        self._taup = super(SMAC2, self).compute_spectral_aerosol_depth(self._taup550)
 
     def compute_gaseous_transmissions(self, Peq):
         # 3) gaseous transmissions (downward and upward paths)
@@ -204,7 +212,7 @@ class SMAC2(object):
         r_surf = r_toa - atm_ref * tg
         return r_surf / (tg * ttetas * ttetav + r_surf * s)
 
-    def compute_toa(r_srf, altitude)
+    def compute_toa(self, r_surf, altitude):
         Peq = PdeZ(altitude)/1013.25
 
         tg = self.compute_gaseous_transmissions(Peq)
@@ -213,9 +221,6 @@ class SMAC2(object):
         atm_ref = self.compute_atmospheric_reflectance(Peq)
 
         return self._compute_toa(r_surf, atm_ref, tg, ttetas, ttetav, s)
-
-    def _compute_toa(self, r_surf, atm_ref, tg, ttetas, ttetav, s)
-        return r_surf * tg * ttetas * ttetav / (1 - r_surf * s) + atm_ref * tg
 
 class SMAC(SMAC2):
     """
